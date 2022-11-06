@@ -67,7 +67,7 @@
 (define (strings->string strs)
   (apply string-append strs))
 
-(define (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping)
+(define (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits)
   (cases circuit-body-item
          circuit-item
          [repeat
@@ -76,8 +76,9 @@
             (generate-qasm-from-circuit-item circuit))]
          [circuit-call
           (name args)
+          (define sz (circuit-size name max-qubits submodules-info))
           (when (empty? args)
-            (set! args (range (circuit-size name (length arg-mapping) submodules-info))))
+            (set! args (range 0 max-qubits sz)))
           (define new_args
             (if (empty? arg-mapping) args (map (lambda (x) (list-ref arg-mapping x)) args)))
           (if (fundamental-gate-name? name)
@@ -85,9 +86,10 @@
               (generate-qasm-from-name submodules-info name new_args))]))
 
 (define (generate-qasm-from-name submodules-info submodule-name arg-mapping)
+  (define max-qubits (car (hash-ref submodules-info submodule-name)))
   (define submodules (cdr (hash-ref submodules-info submodule-name)))
   (define qasms (map (lambda (circuit-item)
-         (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping))
+         (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits))
        submodules))
   (strings->string qasms))
 
@@ -108,9 +110,7 @@
   (define submodules-info (make-hash))
   (map (parse-submodule submodules-info) ast)
   (define run-name (hash-ref submodules-info 'run))
-  (printf "Generating circuit for ~a\n" run-name)
   (define qasm (generate-qasm-from-name submodules-info run-name (list)))
-  (printf qasm)
-  0)
+  (string-trim qasm))
 
-(run-on-file "samples/sample.rkt")
+(provide (all-defined-out))

@@ -26,7 +26,7 @@
     ['CX #t]
     [else #f]))
 
-(define (circuit-size circuit-name default-size) 
+(define (circuit-size circuit-name default-size submodules-info)
   (match circuit-name
     ['H 1]
     ['S 1]
@@ -36,9 +36,7 @@
     ['measure default-size]
     ['CZ 2]
     ['CX 2]
-    [else (car (hash-ref submodules circuit-name))]
-  )
-)
+    [else (car (hash-ref submodules-info circuit-name))]))
 
 (define (cstCircuitBodyItem->astCircuitBodyItem x)
   (match x
@@ -54,43 +52,65 @@
      (circuit-def name qubit (map cstCircuitBodyItem->astCircuitBodyItem body))]
     [else (error "cst->ast: bad input" x)]))
 
-(define submodules (make-hash))
-(define (parse-submodules submodule)
-  (cases ast
-         submodule
-         [circuit-def (name qubit body) (hash-set! submodules name (list qubit body))]
-         [run-circuit (name) (set! run name)]))
-
 (define (print-gate name args)
   (define indices
     (for/list ([i args])
       (~v i)))
   (define indices-string (string-join indices ","))
   (define final (string-append (symbol->string name) " " "q[" indices-string "]\n"))
-  (display final))
+  final)
 
-(define (generate-qasm submodule arg-mapping)
+(define (expand-args args)
+  (flatten (for/list ([i args])
+             (if (list? i) (range (car i) (add1 (cadr i))) i))))
+
+(define (strings->string strs)
+  (apply string-append strs))
+
+(define (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping)
   (cases circuit-body-item
-         submodule
+         circuit-item
          [repeat
           (circuit n)
-          (for ([i (in-range n)])
-            (generate-qasm circuit))]
+          (for ([i (range n)])
+            (generate-qasm-from-circuit-item circuit))]
          [circuit-call
           (name args)
           (when (empty? args)
-            (set! args (sequence->list (in-range (circuit-size name (length arg-mapping))))))
+            (set! args (range (circuit-size name (length arg-mapping) submodules-info))))
           (define new_args
             (if (empty? arg-mapping) args (map (lambda (x) (list-ref arg-mapping x)) args)))
           (if (fundamental-gate-name? name)
               (print-gate name new_args)
-              (map (lambda (x) (generate-qasm x new_args)) (cadr (hash-ref submodules name))))]))
+              (generate-qasm-from-name submodules-info name new_args))]))
 
-(define run 'none)
-(define cst
-  (call-with-input-file "samples.rkt"
-                        (lambda (x)
-                          (for/list ([e (in-port read x)])
-                            e))))
-(define z (map parse-submodules (map cst->ast cst)))
-(define y (map (lambda (x) (generate-qasm x (list))) (cadr (hash-ref submodules run))))
+(define (generate-qasm-from-name submodules-info submodule-name arg-mapping)
+  (define submodules (cdr (hash-ref submodules-info submodule-name)))
+  (define qasms (map (lambda (circuit-item)
+         (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping))
+       submodules))
+  (strings->string qasms))
+
+(define (parse-submodule submodules-info)
+  (lambda (submodule)
+    (cases ast
+           submodule
+           [circuit-def (name qubit body) (hash-set! submodules-info name (cons qubit body))]
+           [run-circuit (name) (hash-set! submodules-info 'run name)])))
+
+(define (run-on-file filename)
+  (define cst
+    (call-with-input-file filename
+                          (lambda (x)
+                            (for/list ([e (in-port read x)])
+                              e))))
+  (define ast (map cst->ast cst))
+  (define submodules-info (make-hash))
+  (map (parse-submodule submodules-info) ast)
+  (define run-name (hash-ref submodules-info 'run))
+  (printf "Generating circuit for ~a\n" run-name)
+  (define qasm (generate-qasm-from-name submodules-info run-name (list)))
+  (printf qasm)
+  0)
+
+(run-on-file "samples/sample.rkt")

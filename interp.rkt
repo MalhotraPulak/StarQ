@@ -21,19 +21,19 @@
     ['Z #t]
     ['X #t]
     ['Y #t]
-    ['measure #t]
+    ['measure_z #t]
     ['CZ #t]
     ['CX #t]
     [else #f]))
 
-(define (circuit-size circuit-name default-size submodules-info)
+(define (circuit-size circuit-name submodules-info)
   (match circuit-name
     ['H 1]
     ['S 1]
     ['Z 1]
     ['X 1]
     ['Y 1]
-    ['measure default-size]
+    ['measure_z 1]
     ['CZ 2]
     ['CX 2]
     [else (car (hash-ref submodules-info circuit-name))]))
@@ -108,7 +108,9 @@
           (string-join gates "\n")]
          [circuit-call
           (name args)
-          (define sz (circuit-size name max-qubits submodules-info))
+          (define sz (circuit-size name submodules-info))
+          ;;; (when (eq? (length args) (- sz 1)) 
+          ;;;   (set! args (append args (list (range max-qubits)))))
           (when (empty? args)
             (set! args (generate-args sz max-qubits)))
           (define multi-args (expand-args args))

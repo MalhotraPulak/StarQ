@@ -3,7 +3,7 @@
 (require racket/trace)
 (define-datatype circuit-body-item
                  circuit-body-item?
-                 [repeat (circuit-name circuit-body-item?) (count number?)]
+                 [repeat (circuit circuit-body-item?) (count number?)]
                  [circuit-call (circuit-name symbol?) (gate-args list?)]
                  ;; [moment (gates (listof circuit-body-item?))]
                  )
@@ -47,7 +47,7 @@
 
 (define (cstCircuitBodyItem->astCircuitBodyItem x)
   (match x
-    [(list 'repeat circuit n) (repeat circuit n)]
+    [(list 'repeat circuit n) (repeat (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
     [(list name args ...) (circuit-call name (range-expand args))]
     [(list name) (circuit-call name (list))]
     [else (error "cstGate->astGate: bad input" x)]))
@@ -103,8 +103,9 @@
          circuit-item
          [repeat
           (circuit n)
-          (for ([i (range n)])
-            (generate-qasm-from-circuit-item circuit))]
+          (define gates (for/list ([i (range n)])
+            (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits)))
+          (string-join gates "\n")]
          [circuit-call
           (name args)
           (define sz (circuit-size name max-qubits submodules-info))

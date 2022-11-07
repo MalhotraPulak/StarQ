@@ -4,7 +4,7 @@
 (define-datatype circuit-body-item
                  circuit-body-item?
                  [repeat (circuit-name circuit-body-item?) (count number?)]
-                 [circuit-call (circuit-name symbol?) (gate-args (listof number?))]
+                 [circuit-call (circuit-name symbol?) (gate-args list?)]
                  ;; [moment (gates (listof circuit-body-item?))]
                  )
 
@@ -38,10 +38,17 @@
     ['CX 2]
     [else (car (hash-ref submodules-info circuit-name))]))
 
+(define (range-expand args)
+  (match args
+    [(? number?) args]
+    [(list x ': y) (range x (add1 y))]
+    [(? list?) (map range-expand args)]
+    [else (error "range-expand: bad args" args)]))
+
 (define (cstCircuitBodyItem->astCircuitBodyItem x)
   (match x
     [(list 'repeat circuit n) (repeat circuit n)]
-    [(list name args ...) (circuit-call name args)]
+    [(list name args ...) (circuit-call name (range-expand args))]
     [(list name) (circuit-call name (list))]
     [else (error "cstGate->astGate: bad input" x)]))
 

@@ -99,6 +99,19 @@
   (define instrs (map qasm->string qasms))
   (string-join instrs "\n"))
 
+(define (check-moment qasms)
+  (define seen (make-hash))
+  (for ([instruction qasms])
+    (cases qasm instruction
+      [instr (name args)
+       (for ([arg args])
+         (when (hash-ref seen arg #f)
+           (error "check-moment: qubit used twice"))
+         (hash-set! seen arg #t))]))
+    qasms)
+  
+
+
 (define (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits)
   (cases circuit-body-item
          circuit-item
@@ -113,7 +126,7 @@
           (define qasms
             (for/list ([circuit circuits])
               (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits)))
-          (flatten qasms)]
+          (check-moment (flatten qasms))]
          [circuit-call
           (name args)
           (define sz (circuit-size name submodules-info))

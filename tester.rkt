@@ -16,5 +16,5 @@
   (if (file-exists? test_path)
       (check-equal? (run-on-file file_name) (file->string test_path))
       (if (file-exists? error-path)
-          (check-exn exn:fail? (run-on-file file_name))
+          (check-exn exn:fail? (lambda () (run-on-file file_name)))
           (printf "No test file found for ~a" file_name))))

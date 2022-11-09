@@ -5,8 +5,7 @@
                  circuit-body-item?
                  [repeat (circuit circuit-body-item?) (count number?)]
                  [circuit-call (circuit-name symbol?) (gate-args list?)]
-                 ;; [moment (gates (listof circuit-body-item?))]
-                 )
+                 [moment (circuits (list-of circuit-body-item?))])
 
 (define-datatype
  ast
@@ -14,20 +13,10 @@
  [run-circuit (circuit-name symbol?)]
  [circuit-def (circuit-name symbol?) (qubit number?) (circuit-body (list-of circuit-body-item?))])
 
-(define (fundamental-gate-name? x)
-  (match x
-    ['H #t]
-    ['S #t]
-    ['Z #t]
-    ['X #t]
-    ['Y #t]
-    ['measure_z #t]
-    ['CZ #t]
-    ['CX #t]
-    [else #f]))
+(define-datatype qasm qasm? [instr (name symbol?) (args (list-of number?))])
 
-(define (circuit-size circuit-name submodules-info)
-  (match circuit-name
+(define (fundamental-gate? name)
+  (match name
     ['H 1]
     ['S 1]
     ['Z 1]
@@ -36,7 +25,12 @@
     ['measure_z 1]
     ['CZ 2]
     ['CX 2]
-    [else (car (hash-ref submodules-info circuit-name))]))
+    [else #f]))
+
+(define (circuit-size circuit-name submodules-info)
+  (if (fundamental-gate? circuit-name)
+      (fundamental-gate? circuit-name)
+      (car (hash-ref submodules-info circuit-name))))
 
 (define (range-expand args)
   (match args
@@ -48,8 +42,13 @@
 (define (cstCircuitBodyItem->astCircuitBodyItem x)
   (match x
     [(list 'repeat circuit n) (repeat (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
-    [(list name args ...) (circuit-call name (range-expand args))]
-    [(list name) (circuit-call name (list))]
+    [(list name args ...)
+     #:when (symbol? name)
+     (circuit-call name (range-expand args))]
+    [(list name)
+     #:when (symbol? name)
+     (circuit-call name (list))]
+    [(list circuits ...) (moment (map cstCircuitBodyItem->astCircuitBodyItem circuits))]
     [else (error "cstGate->astGate: bad input" x)]))
 
 (define (cst->ast x)
@@ -60,21 +59,7 @@
     [else (error "cst->ast: bad input" x)]))
 
 (define (print-one-gate name args)
-  (define indices
-    (for/list ([i args])
-      (format "q[~a]" i)))
-  (define indices-string (string-join indices ", "))
-  (define final (string-append (symbol->string name) " " indices-string))
-  final)
-
-(define (print-multi-gate name multi-args sz)
-  (define instances (length (car multi-args)))
-  (define gates
-    (for/list ([i (in-range instances)])
-      (define f (map car multi-args))
-      (set! multi-args (map cdr multi-args))
-      (print-one-gate name f)))
-  (string-join gates "\n"))
+  (list (instr name args)))
 
 (define (expand-args args)
   (define max-len 1)
@@ -98,32 +83,53 @@
     [(? list?) (map (lambda (arg) (generate-mapped-args arg arg-mapping)) args)]
     [(? number?) (list-ref arg-mapping args)]))
 
+(define (qasm->string instruction)
+              (cases qasm
+                     instruction
+                     [instr
+                      (name args)
+                      (define indices
+                        (for/list ([i args])
+                          (format "q[~a]" i)))
+                      (define indices-string (string-join indices ", "))
+                      (define final (string-append (symbol->string name) " " indices-string))
+                      final]))
+
+(define (qasms->string qasms)
+  (define instrs (map qasm->string qasms))
+  (string-join instrs "\n"))
+
 (define (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits)
   (cases circuit-body-item
          circuit-item
          [repeat
           (circuit n)
-          (define gates (for/list ([i (range n)])
-            (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits)))
-          (string-join gates "\n")]
+          (define qasms
+            (for/list ([i (range n)])
+              (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits)))
+          (flatten qasms)]
+         [moment
+          (circuits)
+          (define qasms
+            (for/list ([circuit circuits])
+              (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits)))
+          (flatten qasms)]
          [circuit-call
           (name args)
           (define sz (circuit-size name submodules-info))
-          ;;; (when (eq? (length args) (- sz 1)) 
-          ;;;   (set! args (append args (list (range max-qubits)))))
           (when (empty? args)
             (set! args (generate-args sz max-qubits)))
           (define multi-args (expand-args args))
           (define instances (length (car multi-args)))
-          (define gates
+          (define qasms
             (for/list ([i (in-range instances)])
               (define args (map car multi-args))
               (set! multi-args (map cdr multi-args))
               (set! args (if (empty? arg-mapping) args (generate-mapped-args args arg-mapping)))
-              (if (fundamental-gate-name? name)
+              (if (fundamental-gate? name)
                   (print-one-gate name args)
                   (generate-qasm-from-name submodules-info name args))))
-          (string-join gates "\n")]))
+          (flatten qasms)]))
 
 (define (generate-qasm-from-name submodules-info submodule-name arg-mapping)
   (define max-qubits (car (hash-ref submodules-info submodule-name)))
@@ -132,7 +138,7 @@
     (map (lambda (circuit-item)
            (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits))
          submodules))
-  (string-join qasms "\n"))
+  (flatten qasms))
 
 (define (parse-submodule submodules-info)
   (lambda (submodule)
@@ -151,7 +157,7 @@
   (define submodules-info (make-hash))
   (map (parse-submodule submodules-info) ast)
   (define run-name (hash-ref submodules-info 'run))
-  (define qasm (generate-qasm-from-name submodules-info run-name (list)))
-  (string-trim qasm))
+  (define qasms (generate-qasm-from-name submodules-info run-name (list)))
+  (qasms->string qasms))
 
 (provide (all-defined-out))

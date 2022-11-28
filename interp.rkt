@@ -4,6 +4,7 @@
 (define-datatype circuit-body-item
                  circuit-body-item?
                  [repeat (circuit circuit-body-item?) (count number?)]
+                 [uncompute (circuit circuit-body-item?)]
                  [circuit-call (circuit-name symbol?) (gate-args list?)]
                  [moment (circuits (list-of circuit-body-item?))])
 
@@ -17,14 +18,38 @@
 
 (define (fundamental-gate? name)
   (match name
-    ['H 1]
-    ['S 1]
-    ['Z 1]
     ['X 1]
     ['Y 1]
-    ['measure_z 1]
+    ['Z 1]
+    ['H 1]
+    ['I 1]
+    ['S 1]
+    ['Rx 1]
+    ['Ry 1]
+    ['Rz 1]
+    ['S 1]
+    ['Sdag 1]
+    ['T 1]
+    ['Tdag 1]
+    ['CNOT 2]
+    ['SWAP 2]
+    ['CR 2]
     ['CZ 2]
     ['CX 2]
+    ['CRk 2]
+    ['Toffoli 3]
+    ['measure_z 1]
+    ['measure_y 1]
+    ['measure_x 1]
+    [else #f]))
+
+(define (constant-args name)
+  (match name
+    ['Rx 1]
+    ['Ry 1]
+    ['Rz 1]
+    ['CR 1]
+    ['CRk 1]
     [else #f]))
 
 (define (circuit-size circuit-name submodules-info)
@@ -88,9 +113,15 @@
                      instruction
                      [instr
                       (name args)
+                      (define constants-count (constant-args name))
+                      ;; todo make for different constants count
+                      (define qubit-args (if constants-count (cdr args) args))
+                      (unless (eq? (length qubit-args) (circuit-size name '()))
+                        (error "qasm->string: ~a gate has received ~a args expected ~a" name (length qubit-args) (circuit-size name '())))
                       (define indices
-                        (for/list ([i args])
+                        (for/list ([i qubit-args])
                           (format "q[~a]" i)))
+                      (when constants-count (set! indices (append indices (list (format "~a" (car args))))))
                       (define indices-string (string-join indices ", "))
                       (define final (string-append (symbol->string name) " " indices-string))
                       final]))
@@ -115,6 +146,11 @@
 (define (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits)
   (cases circuit-body-item
          circuit-item
+         [uncompute
+          (circuit)
+          (define qasms
+              (generate-qasm-from-circuit-item submodules-info (reverse-circuit circuit) arg-mapping max-qubits))
+          (flatten qasms)]
          [repeat
           (circuit n)
           (define qasms

@@ -3,6 +3,7 @@
 (require racket/trace)
 (define-datatype circuit-body-item
                  circuit-body-item?
+                 [shift (circuit circuit-body-item?) (count number?)]
                  [repeat (circuit circuit-body-item?) (count number?)]
                  [uncompute (circuit circuit-body-item?)]
                  [circuit-call (circuit-name symbol?) (gate-args list?)]
@@ -18,7 +19,9 @@
 (define-datatype qasm
                  qasm?
                  [instr (name symbol?) (constant false-or-number?) (args (list-of number?))]
-                 [instr-parallel (instrs (list-of qasm?))])
+                 [instr-parallel (instrs (list-of qasm?))]
+                 [instr-label (label symbol?) (count number?)])
+
 (define special-uncompute (list 'Rxdag 'Rydag 'Rzdag 'CRdag 'CRkdag))
 (define (fundamental-gate? name)
   (match name
@@ -76,6 +79,7 @@
   (match x
     [(list 'repeat circuit n) (repeat (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
     [(list 'uncompute circuit) (uncompute (cstCircuitBodyItem->astCircuitBodyItem circuit))]
+    [(list '-> circuit n) (shift (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
     [(list name args ...)
      #:when (symbol? name)
      (circuit-call name (range-expand args))]
@@ -143,7 +147,12 @@
          [instr-parallel
           (instrs)
           (define instrs-string (string-join (map qasm->string instrs) " | "))
-          (string-append "{ " instrs-string " }")]))
+          (string-append "{ " instrs-string " }")]
+         [instr-label
+          (label count)
+          (if (eq? count 1)
+              (string-append "." (symbol->string label))
+              (string-append "." (symbol->string label) "(" (format "~a" count) ")"))]))
 
 (define (qasms->string qasms)
   (define instrs (map qasm->string qasms))
@@ -160,8 +169,15 @@
               (when (hash-ref seen arg #f)
                 (error "moment error: qubit used twice"))
               (hash-set! seen arg #t))]
-           [instr-parallel (instrs) (error "moment not allowed inside another moment")]))
+           [instr-parallel (instrs) (error "moment not allowed inside another moment")]
+           [instr-label (label count) (list)]))
   qasms)
+
+(define (repeat-func-handler submodules-info circuit-item arg-mapping max-qubits uncompute? n circuit)
+  (define qasms
+    (for/list ([i (range n)])
+      (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)))
+  (flatten qasms))
 
 (define (generate-qasm-from-circuit-item submodules-info
                                          circuit-item
@@ -180,12 +196,32 @@
                                        max-qubits
                                        (not uncompute?)))
     (flatten qasms)]
+   [shift 
+    (circuit n)
+    (when (empty? arg-mapping) (set! arg-mapping (range max-qubits)))
+    (set! arg-mapping (map (lambda (x) (modulo (+ x n) max-qubits)) arg-mapping))
+    (generate-qasm-from-circuit-item submodules-info
+                                     circuit
+                                     arg-mapping
+                                     max-qubits
+                                     uncompute?)]
    [repeat
     (circuit n)
-    (define qasms
-      (for/list ([i (range n)])
-        (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)))
-    (flatten qasms)]
+    (cases
+     circuit-body-item
+     circuit
+     [circuit-call
+      (name args)
+      (list
+       (instr-label name n)
+       (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)
+       (instr-label 'end 1))]
+     [moment (xs) (repeat-func-handler submodules-info circuit arg-mapping max-qubits uncompute? n circuit)]
+     [uncompute (xs) (repeat-func-handler submodules-info circuit arg-mapping max-qubits uncompute? n circuit)]
+     [shift (__ _) (repeat-func-handler submodules-info circuit arg-mapping max-qubits uncompute? n circuit)]
+     [repeat
+      (__ _)
+      (repeat-func-handler submodules-info circuit arg-mapping max-qubits uncompute? n circuit)])]
    [moment
     (circuits)
     (define qasms
@@ -241,7 +277,7 @@
                                             uncompute?))
          submodules))
   (flatten qasms))
-
+;; no function call inside moment
 (define (parse-submodule submodules-info)
   (lambda (submodule)
     (cases ast
@@ -259,7 +295,8 @@
   (define submodules-info (make-hash))
   (define last-module #f)
   (map (lambda (x) (set! last-module ((parse-submodule submodules-info) x))) ast)
-  (define run-name (if (not (hash-ref submodules-info 'run #f)) last-module (hash-ref submodules-info 'run)))
+  (define run-name
+    (if (not (hash-ref submodules-info 'run #f)) last-module (hash-ref submodules-info 'run)))
   (define qasms (generate-qasm-from-name submodules-info run-name (list) #f))
   (qasms->string qasms))
 
@@ -267,4 +304,6 @@
 
 ;; TODO
 ;; print number of qubits
-;; (display (run-on-file "tests/grover.rkt"))
+;; (display (run-on-file "tests/classification.rkt"))
+;; (display "\n")
+;; change uncompute to !

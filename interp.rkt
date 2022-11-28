@@ -1,8 +1,13 @@
 #lang racket
 (require eopl)
 (require racket/trace)
+
+;;; (define (circuit-call? e)
+;;;   (cases circuit-body-item e (circuit-call (circuit n) #t) (else #f)))
+
 (define-datatype circuit-body-item
                  circuit-body-item?
+                 [chdd (circuit circuit-body-item?) (count number?)]
                  [shift (circuit circuit-body-item?) (count number?)]
                  [repeat (circuit circuit-body-item?) (count number?)]
                  [uncompute (circuit circuit-body-item?)]
@@ -80,6 +85,7 @@
     [(list 'repeat circuit n) (repeat (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
     [(list 'uncompute circuit) (uncompute (cstCircuitBodyItem->astCircuitBodyItem circuit))]
     [(list '-> circuit n) (shift (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
+    [(list '% circuit n) (chdd (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
     [(list name args ...)
      #:when (symbol? name)
      (circuit-call name (range-expand args))]
@@ -183,10 +189,20 @@
                                          circuit-item
                                          arg-mapping
                                          max-qubits
-                                         uncompute?)
+                                         uncompute?
+                                         [chop #f])
   (cases
    circuit-body-item
    circuit-item
+   [chdd
+    (circuit n)
+    (cases
+     circuit-body-item
+     circuit
+     (circuit-call
+      (name args)
+      (generate-qasm-from-name submodules-info name arg-mapping uncompute? n))
+     (else (error "chop: bad input" circuit)))]
    [uncompute
     (circuit)
     (define qasms
@@ -196,32 +212,25 @@
                                        max-qubits
                                        (not uncompute?)))
     (flatten qasms)]
-   [shift 
+   [shift
     (circuit n)
-    (when (empty? arg-mapping) (set! arg-mapping (range max-qubits)))
+    (when (empty? arg-mapping)
+      (set! arg-mapping (range max-qubits)))
     (set! arg-mapping (map (lambda (x) (modulo (+ x n) max-qubits)) arg-mapping))
-    (generate-qasm-from-circuit-item submodules-info
-                                     circuit
-                                     arg-mapping
-                                     max-qubits
-                                     uncompute?)]
+    (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)]
    [repeat
     (circuit n)
     (cases
      circuit-body-item
      circuit
-     [circuit-call
+     (circuit-call
       (name args)
       (list
        (instr-label name n)
        (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)
-       (instr-label 'end 1))]
-     [moment (xs) (repeat-func-handler submodules-info circuit arg-mapping max-qubits uncompute? n circuit)]
-     [uncompute (xs) (repeat-func-handler submodules-info circuit arg-mapping max-qubits uncompute? n circuit)]
-     [shift (__ _) (repeat-func-handler submodules-info circuit arg-mapping max-qubits uncompute? n circuit)]
-     [repeat
-      (__ _)
-      (repeat-func-handler submodules-info circuit arg-mapping max-qubits uncompute? n circuit)])]
+       (instr-label 'end 1)))
+     (else
+      (repeat-func-handler submodules-info circuit arg-mapping max-qubits uncompute? n circuit)))]
    [moment
     (circuits)
     (define qasms
@@ -263,9 +272,11 @@
             (generate-qasm-from-name submodules-info name args uncompute?))))
     (if make-parallel (instr-parallel (flatten qasms)) (flatten qasms))]))
 
-(define (generate-qasm-from-name submodules-info submodule-name arg-mapping uncompute?)
+(define (generate-qasm-from-name submodules-info submodule-name arg-mapping uncompute? [chop #f])
   (define max-qubits (car (hash-ref submodules-info submodule-name)))
   (define submodules (cdr (hash-ref submodules-info submodule-name)))
+  (when chop
+    (set! submodules (take submodules (- (length submodules) chop))))
   (when uncompute?
     (set! submodules (reverse submodules)))
   (define qasms
@@ -304,6 +315,6 @@
 
 ;; TODO
 ;; print number of qubits
-;; (display (run-on-file "tests/classification.rkt"))
-;; (display "\n")
+(display (run-on-file "tests/qft.rkt"))
+(display "\n")
 ;; change uncompute to !

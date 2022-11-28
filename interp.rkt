@@ -16,6 +16,7 @@
 
 (define-datatype qasm qasm? [instr (name symbol?) (args (list-of number?))])
 
+
 (define (fundamental-gate? name)
   (match name
     ['X 1]
@@ -67,6 +68,7 @@
 (define (cstCircuitBodyItem->astCircuitBodyItem x)
   (match x
     [(list 'repeat circuit n) (repeat (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
+    [(list 'uncompute circuit) (uncompute (cstCircuitBodyItem->astCircuitBodyItem circuit))]
     [(list name args ...)
      #:when (symbol? name)
      (circuit-call name (range-expand args))]
@@ -109,22 +111,26 @@
     [(? number?) (list-ref arg-mapping args)]))
 
 (define (qasm->string instruction)
-              (cases qasm
-                     instruction
-                     [instr
-                      (name args)
-                      (define constants-count (constant-args name))
-                      ;; todo make for different constants count
-                      (define qubit-args (if constants-count (cdr args) args))
-                      (unless (eq? (length qubit-args) (circuit-size name '()))
-                        (error "qasm->string: ~a gate has received ~a args expected ~a" name (length qubit-args) (circuit-size name '())))
-                      (define indices
-                        (for/list ([i qubit-args])
-                          (format "q[~a]" i)))
-                      (when constants-count (set! indices (append indices (list (format "~a" (car args))))))
-                      (define indices-string (string-join indices ", "))
-                      (define final (string-append (symbol->string name) " " indices-string))
-                      final]))
+  (cases qasm
+         instruction
+         [instr
+          (name args)
+          (define constants-count (constant-args name))
+          ;; todo make for different constants count
+          (define qubit-args (if constants-count (cdr args) args))
+          (unless (eq? (length qubit-args) (circuit-size name '()))
+            (error "qasm->string: ~a gate has received ~a args expected ~a"
+                   name
+                   (length qubit-args)
+                   (circuit-size name '())))
+          (define indices
+            (for/list ([i qubit-args])
+              (format "q[~a]" i)))
+          (when constants-count
+            (set! indices (append indices (list (format "~a" (car args))))))
+          (define indices-string (string-join indices ", "))
+          (define final (string-append (symbol->string name) " " indices-string))
+          final]))
 
 (define (qasms->string qasms)
   (define instrs (map qasm->string qasms))
@@ -133,35 +139,40 @@
 (define (check-moment qasms)
   (define seen (make-hash))
   (for ([instruction qasms])
-    (cases qasm instruction
-      [instr (name args)
-       (for ([arg args])
-         (when (hash-ref seen arg #f)
-           (error "check-moment: qubit used twice"))
-         (hash-set! seen arg #t))]))
-    qasms)
-  
+    (cases qasm
+           instruction
+           [instr
+            (name args)
+            (for ([arg args])
+              (when (hash-ref seen arg #f)
+                (error "check-moment: qubit used twice"))
+              (hash-set! seen arg #t))]))
+  qasms)
 
-
-(define (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits)
+(define (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits uncompute?)
   (cases circuit-body-item
          circuit-item
          [uncompute
           (circuit)
           (define qasms
-              (generate-qasm-from-circuit-item submodules-info (reverse-circuit circuit) arg-mapping max-qubits))
+            (generate-qasm-from-circuit-item submodules-info
+                                             circuit
+                                             arg-mapping
+                                             max-qubits
+                                             (not uncompute?)
+                                             ))
           (flatten qasms)]
          [repeat
           (circuit n)
           (define qasms
             (for/list ([i (range n)])
-              (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits)))
+              (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)))
           (flatten qasms)]
          [moment
           (circuits)
           (define qasms
             (for/list ([circuit circuits])
-              (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits)))
+              (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)))
           (check-moment (flatten qasms))]
          [circuit-call
           (name args)
@@ -176,16 +187,21 @@
               (set! multi-args (map cdr multi-args))
               (set! args (if (empty? arg-mapping) args (generate-mapped-args args arg-mapping)))
               (if (fundamental-gate? name)
+                  (begin
+                  (when uncompute? (uncompute-gate name)) 
                   (print-one-gate name args)
-                  (generate-qasm-from-name submodules-info name args))))
+                  )
+                  (generate-qasm-from-name submodules-info name args uncompute?))))
           (flatten qasms)]))
 
-(define (generate-qasm-from-name submodules-info submodule-name arg-mapping)
+(define (generate-qasm-from-name submodules-info submodule-name arg-mapping uncompute?)
   (define max-qubits (car (hash-ref submodules-info submodule-name)))
   (define submodules (cdr (hash-ref submodules-info submodule-name)))
+  (when uncompute?
+    (set! submodules (reverse submodules)))
   (define qasms
     (map (lambda (circuit-item)
-           (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits))
+           (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits uncompute?))
          submodules))
   (flatten qasms))
 
@@ -206,7 +222,7 @@
   (define submodules-info (make-hash))
   (map (parse-submodule submodules-info) ast)
   (define run-name (hash-ref submodules-info 'run))
-  (define qasms (generate-qasm-from-name submodules-info run-name (list)))
+  (define qasms (generate-qasm-from-name submodules-info run-name (list) #f))
   (qasms->string qasms))
 
 (provide (all-defined-out))

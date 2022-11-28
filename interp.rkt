@@ -14,9 +14,11 @@
  [run-circuit (circuit-name symbol?)]
  [circuit-def (circuit-name symbol?) (qubit number?) (circuit-body (list-of circuit-body-item?))])
 
-(define false-or-number?
-  (or/c boolean? number?))
-(define-datatype qasm qasm? [instr (name symbol?) (constant false-or-number?) (args (list-of number?))])
+(define false-or-number? (or/c boolean? number?))
+(define-datatype qasm
+                 qasm?
+                 [instr (name symbol?) (constant false-or-number?) (args (list-of number?))]
+                 [instr-parallel (instrs (list-of qasm?))])
 (define special-uncompute (list 'Rxdag 'Rydag 'Rzdag 'CRdag 'CRkdag))
 (define (fundamental-gate? name)
   (match name
@@ -53,12 +55,10 @@
     [else #f]))
 
 (define (constant-args name)
-  (if (fundamental-gate? name)
-    (second (fundamental-gate? name))
-    #f))
+  (if (fundamental-gate? name) (second (fundamental-gate? name)) #f))
 
 (define (uncompute-gate name)
-  (third (fundamental-gate? name)))
+  (if (fundamental-gate? name) (third (fundamental-gate? name)) #f))
 
 (define (circuit-size circuit-name submodules-info)
   (if (fundamental-gate? circuit-name)
@@ -97,7 +97,7 @@
     (error "print-one-gate: wrong number of args ~a for gate ~a" (length args) name))
   ;; if name in special uncompute gate
   (when (member name special-uncompute)
-      (begin 
+    (begin
       (set! name (uncompute-gate name))
       (set! constant (- constant)))) ;; reverse angle for uncompute gates
   (list (instr name constant args)))
@@ -122,7 +122,10 @@
 (define (generate-mapped-args args arg-mapping)
   (match args
     [(? list?) (map (lambda (arg) (generate-mapped-args arg arg-mapping)) args)]
-    [(? number?) (list-ref arg-mapping args)]))
+    [(? number?)
+     (when (>= args (length arg-mapping))
+       (error "Invalid qubit count"))
+     (list-ref arg-mapping args)]))
 
 (define (qasm->string instruction)
   (cases qasm
@@ -136,7 +139,11 @@
             (set! indices (append indices (list (format "~a" constant)))))
           (define indices-string (string-join indices ", "))
           (define final (string-append (symbol->string name) " " indices-string))
-          final]))
+          final]
+         [instr-parallel
+          (instrs)
+          (define instrs-string (string-join (map qasm->string instrs) " | "))
+          (string-append "{ " instrs-string " }")]))
 
 (define (qasms->string qasms)
   (define instrs (map qasm->string qasms))
@@ -151,66 +158,74 @@
             (name constant args)
             (for ([arg args])
               (when (hash-ref seen arg #f)
-                (error "check-moment: qubit used twice"))
-              (hash-set! seen arg #t))]))
+                (error "moment error: qubit used twice"))
+              (hash-set! seen arg #t))]
+           [instr-parallel (instrs) (error "moment not allowed inside another moment")]))
   qasms)
 
-(define (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits uncompute?)
-  (cases circuit-body-item
-         circuit-item
-         [uncompute
-          (circuit)
-          (define qasms
-            (generate-qasm-from-circuit-item submodules-info
-                                             circuit
-                                             arg-mapping
-                                             max-qubits
-                                             (not uncompute?)
-                                             ))
-          (flatten qasms)]
-         [repeat
-          (circuit n)
-          (define qasms
-            (for/list ([i (range n)])
-              (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)))
-          (flatten qasms)]
-         [moment
-          (circuits)
-          (define qasms
-            (for/list ([circuit circuits])
-              (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)))
-          (check-moment (flatten qasms))]
-         [circuit-call
-          (name args)
-          (define old-name name)
-
-          ;; remove constant from args if present
-          (define has-constant? (constant-args name))
-          (define constant #f)
-          (when has-constant?
-            (set! constant (first args))
-            (set! args (rest args)))
-          
-          ;; expand args to get instances
-          (define sz (circuit-size name submodules-info))
-          (when (empty? args)
-            (set! args (generate-args sz max-qubits)))
-          (define multi-args (expand-args args))
-          (define instances (length (car multi-args)))
-
-          ;; generate qasm for each instance
-          (define qasms
-            (for/list ([i (in-range instances)])
-              (define args (map car multi-args))
-              (set! multi-args (map cdr multi-args))
-              (set! args (if (empty? arg-mapping) args (generate-mapped-args args arg-mapping)))
-              (if (fundamental-gate? name)
-                  (begin
-                  (when uncompute? (set! name (uncompute-gate name)))
-                  (when (eq? name #f) (error "Uncompute on invalid gate ~a" old-name)) ;; add test
-                  (print-one-gate name constant args))
-                  (generate-qasm-from-name submodules-info name args uncompute?))))
-          (flatten qasms)]))
+(define (generate-qasm-from-circuit-item submodules-info
+                                         circuit-item
+                                         arg-mapping
+                                         max-qubits
+                                         uncompute?)
+  (cases
+   circuit-body-item
+   circuit-item
+   [uncompute
+    (circuit)
+    (define qasms
+      (generate-qasm-from-circuit-item submodules-info
+                                       circuit
+                                       arg-mapping
+                                       max-qubits
+                                       (not uncompute?)))
+    (flatten qasms)]
+   [repeat
+    (circuit n)
+    (define qasms
+      (for/list ([i (range n)])
+        (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)))
+    (flatten qasms)]
+   [moment
+    (circuits)
+    (define qasms
+      (for/list ([circuit circuits])
+        (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)))
+    (instr-parallel (check-moment (flatten qasms)))]
+   [circuit-call
+    (name args)
+    (define old-name name)
+    ;; remove constant from args if present
+    (define has-constant? (constant-args name))
+    (define constant #f)
+    (when has-constant?
+      (set! constant (first args))
+      (set! args (rest args)))
+    ;; expand args to get instances
+    (define sz (circuit-size name submodules-info))
+    ;; make parallel
+    (define make-parallel #f)
+    (when (and (empty? args) (eq? sz 1) (> max-qubits 1))
+      (set! make-parallel #t))
+    (when (empty? args)
+      (set! args (generate-args sz max-qubits)))
+    (define multi-args (expand-args args))
+    (define instances (length (car multi-args)))
+    ;; generate qasm for each instance
+    (define qasms
+      (for/list ([i (in-range instances)])
+        (define args (map car multi-args))
+        (set! multi-args (map cdr multi-args))
+        (set! args (if (empty? arg-mapping) args (generate-mapped-args args arg-mapping)))
+        (if (fundamental-gate? name)
+            (begin
+              (when uncompute?
+                (set! name (uncompute-gate name)))
+              (when (eq? name #f)
+                (error "Uncompute on invalid gate ~a" old-name))
+              (print-one-gate name constant args))
+            (generate-qasm-from-name submodules-info name args uncompute?))))
+    (if make-parallel (instr-parallel (flatten qasms)) (flatten qasms))]))
 
 (define (generate-qasm-from-name submodules-info submodule-name arg-mapping uncompute?)
   (define max-qubits (car (hash-ref submodules-info submodule-name)))
@@ -219,7 +234,11 @@
     (set! submodules (reverse submodules)))
   (define qasms
     (map (lambda (circuit-item)
-           (generate-qasm-from-circuit-item submodules-info circuit-item arg-mapping max-qubits uncompute?))
+           (generate-qasm-from-circuit-item submodules-info
+                                            circuit-item
+                                            arg-mapping
+                                            max-qubits
+                                            uncompute?))
          submodules))
   (flatten qasms))
 
@@ -227,8 +246,8 @@
   (lambda (submodule)
     (cases ast
            submodule
-           [circuit-def (name qubit body) (hash-set! submodules-info name (cons qubit body))]
-           [run-circuit (name) (hash-set! submodules-info 'run name)])))
+           [circuit-def (name qubit body) (hash-set! submodules-info name (cons qubit body)) name]
+           [run-circuit (name) (hash-set! submodules-info 'run name) name])))
 
 (define (run-on-file filename)
   (define cst
@@ -238,9 +257,14 @@
                               e))))
   (define ast (map cst->ast cst))
   (define submodules-info (make-hash))
-  (map (parse-submodule submodules-info) ast)
-  (define run-name (hash-ref submodules-info 'run))
+  (define last-module #f)
+  (map (lambda (x) (set! last-module ((parse-submodule submodules-info) x))) ast)
+  (define run-name (if (not (hash-ref submodules-info 'run #f)) last-module (hash-ref submodules-info 'run)))
   (define qasms (generate-qasm-from-name submodules-info run-name (list) #f))
   (qasms->string qasms))
 
 (provide (all-defined-out))
+
+;; TODO
+;; print number of qubits
+;; (display (run-on-file "tests/grover.rkt"))

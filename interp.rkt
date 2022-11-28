@@ -14,48 +14,55 @@
  [run-circuit (circuit-name symbol?)]
  [circuit-def (circuit-name symbol?) (qubit number?) (circuit-body (list-of circuit-body-item?))])
 
-(define-datatype qasm qasm? [instr (name symbol?) (args (list-of number?))])
-
-
+(define false-or-number?
+  (or/c boolean? number?))
+(define-datatype qasm qasm? [instr (name symbol?) (constant false-or-number?) (args (list-of number?))])
+(define special-uncompute (list 'Rxdag 'Rydag 'Rzdag 'CRdag 'CRkdag))
 (define (fundamental-gate? name)
   (match name
-    ['X 1]
-    ['Y 1]
-    ['Z 1]
-    ['H 1]
-    ['I 1]
-    ['S 1]
-    ['Rx 1]
-    ['Ry 1]
-    ['Rz 1]
-    ['S 1]
-    ['Sdag 1]
-    ['T 1]
-    ['Tdag 1]
-    ['CNOT 2]
-    ['SWAP 2]
-    ['CR 2]
-    ['CZ 2]
-    ['CX 2]
-    ['CRk 2]
-    ['Toffoli 3]
-    ['measure_z 1]
-    ['measure_y 1]
-    ['measure_x 1]
+    ['X '(1 #f X)]
+    ['Y '(1 #f Y)]
+    ['Z '(1 #f Z)]
+    ['H '(1 #f H)]
+    ['I '(1 #f I)]
+    ['S '(1 #f Sdag)]
+    ['Sdag '(1 #f S)]
+    ['T '(1 #f Tdag)]
+    ['Tdag '(1 #f T)]
+    ['CNOT '(2 #f CNOT)]
+    ['SWAP '(2 #f SWAP)]
+    ['CZ '(2 #f CZ)]
+    ['CX '(2 #f CX)]
+    ;; special uncompute
+    ['Rx '(1 1 Rxdag)]
+    ['Ry '(1 1 Rydag)]
+    ['Rz '(1 1 Rzdag)]
+    ['CR '(2 1 CRdag)]
+    ['CRk '(2 1 CRkdag)]
+    ;; special uncompute ends
+    ['Toffoli '(3 #f Toffoli)]
+    ['measure_z '(1 #f #f)]
+    ['measure_y '(1 #f #f)]
+    ['measure_x '(1 #f #f)]
+    ;; uncompute hack
+    ['Rxdag '(1 1 Rxdag)]
+    ['Rydag '(1 1 Rydag)]
+    ['Rzdag '(1 1 Rzdag)]
+    ['CRdag '(2 1 CRdag)]
+    ['CRkdag '(2 1 CRkdag)]
     [else #f]))
 
 (define (constant-args name)
-  (match name
-    ['Rx 1]
-    ['Ry 1]
-    ['Rz 1]
-    ['CR 1]
-    ['CRk 1]
-    [else #f]))
+  (if (fundamental-gate? name)
+    (second (fundamental-gate? name))
+    #f))
+
+(define (uncompute-gate name)
+  (third (fundamental-gate? name)))
 
 (define (circuit-size circuit-name submodules-info)
   (if (fundamental-gate? circuit-name)
-      (fundamental-gate? circuit-name)
+      (first (fundamental-gate? circuit-name))
       (car (hash-ref submodules-info circuit-name))))
 
 (define (range-expand args)
@@ -85,8 +92,15 @@
      (circuit-def name qubit (map cstCircuitBodyItem->astCircuitBodyItem body))]
     [else (error "cst->ast: bad input" x)]))
 
-(define (print-one-gate name args)
-  (list (instr name args)))
+(define (print-one-gate name constant args)
+  (unless (eq? (length args) (circuit-size name '()))
+    (error "print-one-gate: wrong number of args ~a for gate ~a" (length args) name))
+  ;; if name in special uncompute gate
+  (when (member name special-uncompute)
+      (begin 
+      (set! name (uncompute-gate name))
+      (set! constant (- constant)))) ;; reverse angle for uncompute gates
+  (list (instr name constant args)))
 
 (define (expand-args args)
   (define max-len 1)
@@ -114,20 +128,12 @@
   (cases qasm
          instruction
          [instr
-          (name args)
-          (define constants-count (constant-args name))
-          ;; todo make for different constants count
-          (define qubit-args (if constants-count (cdr args) args))
-          (unless (eq? (length qubit-args) (circuit-size name '()))
-            (error "qasm->string: ~a gate has received ~a args expected ~a"
-                   name
-                   (length qubit-args)
-                   (circuit-size name '())))
+          (name constant args)
           (define indices
-            (for/list ([i qubit-args])
+            (for/list ([i args])
               (format "q[~a]" i)))
-          (when constants-count
-            (set! indices (append indices (list (format "~a" (car args))))))
+          (when constant
+            (set! indices (append indices (list (format "~a" constant)))))
           (define indices-string (string-join indices ", "))
           (define final (string-append (symbol->string name) " " indices-string))
           final]))
@@ -142,7 +148,7 @@
     (cases qasm
            instruction
            [instr
-            (name args)
+            (name constant args)
             (for ([arg args])
               (when (hash-ref seen arg #f)
                 (error "check-moment: qubit used twice"))
@@ -176,9 +182,15 @@
           (check-moment (flatten qasms))]
          [circuit-call
           (name args)
+          (define old-name name)
           (define sz (circuit-size name submodules-info))
           (when (empty? args)
             (set! args (generate-args sz max-qubits)))
+          (define has-constant? (constant-args name))
+          (define constant #f)
+          (when has-constant?
+            (set! constant (first args))
+            (set! args (rest args)))
           (define multi-args (expand-args args))
           (define instances (length (car multi-args)))
           (define qasms
@@ -188,9 +200,9 @@
               (set! args (if (empty? arg-mapping) args (generate-mapped-args args arg-mapping)))
               (if (fundamental-gate? name)
                   (begin
-                  (when uncompute? (uncompute-gate name)) 
-                  (print-one-gate name args)
-                  )
+                  (when uncompute? (set! name (uncompute-gate name)))
+                  (when (eq? name #f) (error "Uncompute on invalid gate ~a" old-name)) ;; add test
+                  (print-one-gate name constant args))
                   (generate-qasm-from-name submodules-info name args uncompute?))))
           (flatten qasms)]))
 

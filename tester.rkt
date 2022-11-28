@@ -10,6 +10,7 @@
 (for ([file (filter (lambda (s) (string-suffix? s ".rkt"))
                     (map path->string (directory-list "tests")))])
   (define file_name (string-append "tests/" file))
+  (printf "Testing ~a...\n" file_name)
   (define test_path (string-append file_name ".qasm"))
   (define error-path (string-append file_name ".err"))
   (if (file-exists? test_path)

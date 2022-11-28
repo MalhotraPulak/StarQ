@@ -45,11 +45,11 @@
     ['measure_y '(1 #f #f)]
     ['measure_x '(1 #f #f)]
     ;; uncompute hack
-    ['Rxdag '(1 1 Rxdag)]
-    ['Rydag '(1 1 Rydag)]
-    ['Rzdag '(1 1 Rzdag)]
-    ['CRdag '(2 1 CRdag)]
-    ['CRkdag '(2 1 CRkdag)]
+    ['Rxdag '(1 1 Rx)]
+    ['Rydag '(1 1 Ry)]
+    ['Rzdag '(1 1 Rz)]
+    ['CRdag '(2 1 CR)]
+    ['CRkdag '(2 1 CRk)]
     [else #f]))
 
 (define (constant-args name)
@@ -183,16 +183,22 @@
          [circuit-call
           (name args)
           (define old-name name)
-          (define sz (circuit-size name submodules-info))
-          (when (empty? args)
-            (set! args (generate-args sz max-qubits)))
+
+          ;; remove constant from args if present
           (define has-constant? (constant-args name))
           (define constant #f)
           (when has-constant?
             (set! constant (first args))
             (set! args (rest args)))
+          
+          ;; expand args to get instances
+          (define sz (circuit-size name submodules-info))
+          (when (empty? args)
+            (set! args (generate-args sz max-qubits)))
           (define multi-args (expand-args args))
           (define instances (length (car multi-args)))
+
+          ;; generate qasm for each instance
           (define qasms
             (for/list ([i (in-range instances)])
               (define args (map car multi-args))

@@ -315,6 +315,6 @@
 
 ;; TODO
 ;; print number of qubits
-(display (run-on-file "tests/qft.rkt"))
-(display "\n")
+;; (display (run-on-file "tests/qft.rkt"))
+;; (display "\n")
 ;; change uncompute to !

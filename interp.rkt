@@ -7,7 +7,7 @@
 
 (define-datatype circuit-body-item
                  circuit-body-item?
-                 [chdd (circuit circuit-body-item?) (count number?)]
+                 [chops (circuit circuit-body-item?) (count number?)]
                  [shift (circuit circuit-body-item?) (count number?)]
                  [repeat (circuit circuit-body-item?) (count number?)]
                  [uncompute (circuit circuit-body-item?)]
@@ -85,7 +85,7 @@
     [(list 'repeat circuit n) (repeat (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
     [(list 'uncompute circuit) (uncompute (cstCircuitBodyItem->astCircuitBodyItem circuit))]
     [(list '-> circuit n) (shift (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
-    [(list '% circuit n) (chdd (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
+    [(list '% circuit n) (chops (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
     [(list name args ...)
      #:when (symbol? name)
      (circuit-call name (range-expand args))]
@@ -194,7 +194,7 @@
   (cases
    circuit-body-item
    circuit-item
-   [chdd
+   [chops
     (circuit n)
     (cases
      circuit-body-item
@@ -315,6 +315,6 @@
 
 ;; TODO
 ;; print number of qubits
-;; (display (run-on-file "tests/qft.rkt"))
-;; (display "\n")
+;;; (display (run-on-file "tests/qft.rkt"))
+;;; (display "\n")
 ;; change uncompute to !

@@ -1,3 +1,4 @@
+qubits 3
 { H q[0] | H q[1] | H q[2] }
 .shift(2)
 X q[0]

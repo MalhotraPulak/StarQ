@@ -308,7 +308,7 @@
   (define run-name
     (if (not (hash-ref submodules-info 'run #f)) last-module (hash-ref submodules-info 'run)))
   (define qasms (generate-qasm-from-name submodules-info run-name (list) #f))
-  (qasms->string qasms))
+  (string-append (format "qubits ~a" (circuit-size run-name submodules-info)) "\n" (qasms->string qasms)))
 
 (provide (all-defined-out))
 

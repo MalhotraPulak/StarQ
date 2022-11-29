@@ -1,3 +1,4 @@
+qubits 3
 Toffoli q[0], q[1], q[2]
 SWAP q[0], q[1]
 Tdag q[0]

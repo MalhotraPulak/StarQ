@@ -1,3 +1,4 @@
+qubits 4
 H q[0]
 H q[1]
 CNOT q[1], q[2]

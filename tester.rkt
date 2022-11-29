@@ -15,6 +15,7 @@
   (define error-path (string-append file_name ".err"))
   (if (file-exists? test_path)
       (check-equal? (run-on-file file_name) (file->string test_path))
+      ;; (write (run-on-file file_name) (open-output-file test_path #:mode 'text #:exists 'replace))
       (if (file-exists? error-path)
           (check-exn exn:fail? (lambda () (run-on-file file_name)))
           (printf "No test file found for ~a" file_name))))

@@ -1,3 +1,4 @@
+qubits 5
 H q[0]
 CRk q[1], q[0], 2
 CRk q[2], q[0], 3

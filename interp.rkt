@@ -2,17 +2,17 @@
 (require eopl)
 (require racket/trace)
 
-;;; (define (circuit-call? e)
-;;;   (cases circuit-body-item e (circuit-call (circuit n) #t) (else #f)))
+(define (circuit-call? e)
+  (cases circuit-body-item e (circuit-call (circuit n) #t) (else #f)))
 
 (define-datatype circuit-body-item
                  circuit-body-item?
-                 [chops (circuit circuit-body-item?) (count number?)]
+                 [chops (circuit circuit-call?) (count number?)]
                  [shift (circuit circuit-body-item?) (count number?)]
                  [repeat (circuit circuit-body-item?) (count number?)]
                  [uncompute (circuit circuit-body-item?)]
-                 [circuit-call (circuit-name symbol?) (gate-args list?)]
-                 [moment (circuits (list-of circuit-body-item?))])
+                 [moment (circuits (list-of circuit-body-item?))]
+                 [circuit-call (circuit-name symbol?) (gate-args list?)])
 
 (define-datatype
  ast
@@ -20,13 +20,16 @@
  [run-circuit (circuit-name symbol?)]
  [circuit-def (circuit-name symbol?) (qubit number?) (circuit-body (list-of circuit-body-item?))])
 
-(define false-or-number? (or/c boolean? number?))
 (define-datatype qasm
                  qasm?
                  [instr (name symbol?) (constant false-or-number?) (args (list-of number?))]
-                 [instr-parallel (instrs (list-of qasm?))]
+                 [instr-parallel (instrs (list-of instr?))]
                  [instr-label (label symbol?) (count number?)])
 
+(define (instr? e)
+  (cases qasm e (instr (name sym args) #t) (else #f)))
+
+(define false-or-number? (or/c boolean? number?))
 (define special-uncompute (list 'Rxdag 'Rydag 'Rzdag 'CRdag 'CRkdag))
 (define (fundamental-gate? name)
   (match name
@@ -170,14 +173,13 @@
   (for ([instruction qasms])
     (cases qasm
            instruction
-           [instr
+           (instr
             (name constant args)
             (for ([arg args])
               (when (hash-ref seen arg #f)
                 (error "moment error: qubit used twice"))
-              (hash-set! seen arg #t))]
-           [instr-parallel (instrs) (error "moment not allowed inside another moment")]
-           [instr-label (label count) (list)]))
+              (hash-set! seen arg #t)))
+           (else (error "moment can not have other parallel instructions or labels"))))
   qasms)
 
 (define (repeat-func-handler submodules-info circuit-item arg-mapping max-qubits uncompute? n circuit)
@@ -235,7 +237,7 @@
     (define qasms
       (for/list ([circuit circuits])
         (generate-qasm-from-circuit-item submodules-info circuit arg-mapping max-qubits uncompute?)))
-    (instr-parallel (check-moment (flatten qasms)))]
+    (instr-parallel (filter instr? (check-moment (flatten qasms))))]
    [circuit-call
     (name args)
     (define old-name name)
@@ -311,9 +313,3 @@
   (string-append (format "version 1.0\nqubits ~a" (circuit-size run-name submodules-info)) "\n" (qasms->string qasms)))
 
 (provide (all-defined-out))
-
-;; TODO
-;; print number of qubits
-;;; (display (run-on-file "tests/qft.rkt"))
-;;; (display "\n")
-;; change uncompute to !

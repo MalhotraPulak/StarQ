@@ -45,7 +45,6 @@
     ['CNOT '(2 #f CNOT)]
     ['SWAP '(2 #f SWAP)]
     ['CZ '(2 #f CZ)]
-    ['CX '(2 #f CX)]
     ;; special uncompute
     ['Rx '(1 1 Rxdag)]
     ['Ry '(1 1 Rydag)]
@@ -55,6 +54,7 @@
     ;; special uncompute ends
     ['Toffoli '(3 #f Toffoli)]
     ;; invalid uncomputes
+    ['measure '(1 #f #f)]
     ['measure_z '(1 #f #f)]
     ['measure_y '(1 #f #f)]
     ['measure_x '(1 #f #f)]

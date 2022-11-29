@@ -1,5 +1,21 @@
 # StarQ: A Minimal and Accessible Quantum Circuit Representation DSL
 
+### Want Grover search (for 3 qubits) in 6 LOC?? Then try *StarQ*
+```rust
+(ccz 3 (H 2) (Toffoli) (H 2))
+(hx 3 (H) (X))
+
+(oracle 3 (X 0) (ccz) (X 0))
+(diffusion 3 (hx) (ccz) (! (hx)))
+
+(shift 3 (oracle) (diffusion))
+
+(grover 3 (H) (repeat (shift) 2))
+```
+![image](https://user-images.githubusercontent.com/56169176/204645916-038e2925-b811-4332-8f3a-af9d01d596d7.png)
+
+
+
 ### To Run
 To get cQASM for a given StarQ file
 ```bash
@@ -46,7 +62,7 @@ Once we convert AST into cQASM we store it in a qasm datatype:
 ```
 We maintain all the inbuilt gates and their properties in an encapsulated match function:
 Each entry corresponds to `(arity constants uncompute)`
-```
+```racket
 (define (fundamental-gate? name)
   (match name
     ['X '(1 #f X)]

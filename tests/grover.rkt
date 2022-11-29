@@ -1,6 +1,6 @@
 (ccz 3 (H 2) (Toffoli) (H 2))
 (reflection 3 (H) (X))
 (oracle 3 (X 0) (ccz) (X 0))
-(diffusion 3 (reflection) (ccz) (uncompute (reflection)))
+(diffusion 3 (reflection) (ccz) (! (reflection)))
 (shift 3 (oracle) (diffusion))
 (grover 3 (H) (repeat (shift) 2))

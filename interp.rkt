@@ -84,7 +84,7 @@
 (define (cstCircuitBodyItem->astCircuitBodyItem x)
   (match x
     [(list 'repeat circuit n) (repeat (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
-    [(list 'uncompute circuit) (uncompute (cstCircuitBodyItem->astCircuitBodyItem circuit))]
+    [(list '! circuit) (uncompute (cstCircuitBodyItem->astCircuitBodyItem circuit))]
     [(list '-> circuit n) (shift (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
     [(list '% circuit n) (chops (cstCircuitBodyItem->astCircuitBodyItem circuit) n)]
     [(list name args ...)

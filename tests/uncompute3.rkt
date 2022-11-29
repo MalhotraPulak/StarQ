@@ -5,6 +5,6 @@
     (CRk 1.12 0 1))
 
 (my2 2
-    (uncompute (my)))
+    (! (my)))
 
 (run my2)

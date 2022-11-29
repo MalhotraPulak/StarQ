@@ -5,6 +5,6 @@
 
 (my2 1
     (my)
-    (uncompute (my)))
+    (! (my)))
 
 (run my2)

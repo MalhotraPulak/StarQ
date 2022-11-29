@@ -3,6 +3,6 @@
     (X))
 
 (my2 1
-    (uncompute (uncompute (my))))
+    (! (! (my))))
 
 (run my)

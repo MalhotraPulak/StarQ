@@ -10,6 +10,6 @@
 )
 
 (my2 3
-    (uncompute (my)))
+    (! (my)))
 
 (run my2)

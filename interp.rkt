@@ -51,6 +51,7 @@
     ['CRk '(2 1 CRkdag)]
     ;; special uncompute ends
     ['Toffoli '(3 #f Toffoli)]
+    ;; invalid uncomputes
     ['measure_z '(1 #f #f)]
     ['measure_y '(1 #f #f)]
     ['measure_x '(1 #f #f)]
@@ -196,13 +197,11 @@
    circuit-item
    [chops
     (circuit n)
-    (cases
-     circuit-body-item
-     circuit
-     (circuit-call
-      (name args)
-      (generate-qasm-from-name submodules-info name arg-mapping uncompute? n))
-     (else (error "chop: bad input" circuit)))]
+    (cases circuit-body-item
+           circuit
+           (circuit-call (name args)
+                         (generate-qasm-from-name submodules-info name arg-mapping uncompute? n))
+           (else (error "chop: bad input" circuit)))]
    [uncompute
     (circuit)
     (define qasms

@@ -1,3 +1,4 @@
+version 1.0
 qubits 2
 CRk q[0], q[1], -1.12
 CR q[0], q[1], -1.59

@@ -1,3 +1,4 @@
+version 1.0
 qubits 4
 H q[0]
 H q[1]
